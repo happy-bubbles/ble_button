@@ -1,0 +1,36 @@
+#!/bin/sh
+
+make
+res=$?
+if [ "$res" -ne "0" ]
+then
+    echo "BAD MAKE"
+    exit 5
+fi
+
+serial=$1
+
+size=${#serial}
+if [ "$size" -ne "8" ] 
+then
+    echo "bad serial"
+    exit 5
+fi
+s1=${serial:0:2}
+s2=${serial:2:2}
+s3=${serial:4:2}
+s4=${serial:6:2}
+
+printf \\x$s1\\x$s2\\x$s3\\x$s4 > serial
+
+# take off last newline char from serial
+printf %s "$(cat serial)" > serial
+# same for device_secret
+printf %s "$(cat device_secret)" > device_secret
+
+srec_cat ../s110_nrf51822_7.3.0_softdevice.hex -intel _build/bunchie_buttons_s110_xxaa.bin -binary -offset 0x16000 serial -binary -offset 0x10001080 device_secret -binary -offset 0x10001088 -o combined.hex -intel
+
+cp combined.hex ../../
+
+cd ../..
+./flash.sh

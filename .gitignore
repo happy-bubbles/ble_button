@@ -1,0 +1,11 @@
+combined.hex
+*.out
+.DS_Store
+*.o
+*.d
+*.bin
+*.hex
+*.map
+*.elf
+nrf_sdk/gcc/serial
+nrf_sdk/gcc/device_secret

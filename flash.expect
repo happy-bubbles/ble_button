@@ -1,0 +1,12 @@
+#!/usr/bin/expect
+set timeout 300
+spawn telnet localhost 4444
+expect "Open On-Chip Debugger"
+send "halt\n"
+send "nrf51 mass_erase\n"
+send "reset\n"
+send "halt\n"
+send "flash write_image erase combined.hex 0\n"
+send "verify_image combined.hex 0\n"
+send "reset\n"
+expect EOF
