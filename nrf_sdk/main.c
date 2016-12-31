@@ -27,6 +27,9 @@
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
 #define BUTTON1                       18   // minew button
+#define BLUE_LED	15
+#define RED_LED	16
+
 
 #define APP_TIMER_PRESCALER               0                                                 /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_MAX_TIMERS              6                                                 /**< Maximum number of simultaneously created timers. 1 for Battery measurement, 1 for sensor updates  */
@@ -211,6 +214,10 @@ static void ble_stack_init(void)
     
     // Initialize the SoftDevice handler module.
     SOFTDEVICE_HANDLER_INIT(NRF_CLOCK_LFCLKSRC_RC_250_PPM_TEMP_4000MS_CALIBRATION, false);
+		NRF_CLOCK->LFCLKSRC            = (CLOCK_LFCLKSRC_SRC_Xtal << CLOCK_LFCLKSRC_SRC_Pos);
+		NRF_CLOCK->EVENTS_LFCLKSTARTED = 0;
+		NRF_CLOCK->TASKS_LFCLKSTART    = 1;
+		while (NRF_CLOCK->EVENTS_LFCLKSTARTED == 0); // Wait for clock to start
 
     // Enable BLE stack 
     ble_enable_params_t ble_enable_params;
@@ -354,14 +361,17 @@ static void do_button_adv()
 	sensor_data.random = rand;
 	update_advertising();
 
+	nrf_gpio_pin_toggle(BLUE_LED);
+	nrf_gpio_pin_toggle(RED_LED);
 	advertising_start();
 	nrf_delay_ms(150);
 	sd_ble_gap_adv_stop();
+	nrf_gpio_pin_toggle(BLUE_LED);
+	nrf_gpio_pin_toggle(RED_LED);
 }
 
 static void button_handler(uint8_t pin_no, uint8_t button_action)
 {
-	do_button_adv();
     if(button_action == APP_BUTTON_PUSH)
     {
         switch(pin_no)
@@ -378,17 +388,19 @@ static void button_handler(uint8_t pin_no, uint8_t button_action)
 static void gpio_init()
 {
 	uint32_t        err_code;
-	static app_button_cfg_t p_button[] = {  {BUTTON1, APP_BUTTON_ACTIVE_LOW, NRF_GPIO_PIN_PULLUP, button_handler}};
+	static app_button_cfg_t p_button[] = {{BUTTON1, APP_BUTTON_ACTIVE_LOW, NRF_GPIO_PIN_PULLUP, button_handler}};
 	// Initializing the buttons.
-	err_code = app_button_init(p_button, sizeof(p_button) / sizeof(p_button[0]), BUTTON_DEBOUNCE_DELAY, 0);
+	err_code = app_button_init(p_button, 1, BUTTON_DEBOUNCE_DELAY, 0);
+	//app_button_init(p_button, 0, BUTTON_DEBOUNCE_DELAY, 0);
 	APP_ERROR_CHECK(err_code);
 
 	// Enabling the buttons.										
 	err_code = app_button_enable();
 	APP_ERROR_CHECK(err_code);
+
+	nrf_gpio_cfg_output(BLUE_LED);
+	nrf_gpio_cfg_output(RED_LED);
 }
-
-
 
 /**
  * @brief Function for application main entry.
@@ -425,13 +437,14 @@ int main(void)
 
 		timers_init();
     ble_stack_init();
-		
-		nrf_delay_ms(5);
+
+		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();
     adc_start();
 
 		do_button_adv();
 		// Enter main loop.
+		//sd_power_system_off();
     for (;;)
     {
         power_manage();
