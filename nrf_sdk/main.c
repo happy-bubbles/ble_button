@@ -1,23 +1,10 @@
 /* Copyright (c) 2013 Nordic Semiconductor. All Rights Reserved.
- *
- * The information contained herein is property of Nordic Semiconductor ASA.
- * Terms and conditions of usage are described in detail in NORDIC
- * SEMICONDUCTOR STANDARD SOFTWARE LICENSE AGREEMENT.
- *
- * Licensees are granted free, non-transferable use of the information. NO
- * WARRANTY of ANY KIND is provided. This heading must NOT be removed from
- * the file.
+ * Copyright (c) 2015 Nemik Consulting Inc. All Wrongs Reversed.
  *
  */
 
 /** @file
  *
- * @defgroup ble_sdk_app_beacon_main main.c
- * @{
- * @ingroup ble_sdk_app_beacon
- * @brief Beacon Transmitter Sample Application main file.
- *
- * This file contains the source code for an Beacon transmitter sample application.
  */
 
 #include <stdbool.h>
@@ -30,14 +17,16 @@
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
 #include "ble_radio_notification.h"
+#include "app_gpiote.h"
+#include "app_button.h"
 
+#define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
+#define BUTTON_DEBOUNCE_DELAY			50 // Delay from a GPIOTE event until a button is reported as pushed.
+
+#define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
-//#define BUTTON1                       17 //orig button
-//#define BUTTON1                       26   // space costume button, kitty button
 #define BUTTON1                       18   // minew button
-#define BUTTON2                       28            
-#define BUTTON3                       29
 
 #define APP_TIMER_PRESCALER               0                                                 /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_MAX_TIMERS              6                                                 /**< Maximum number of simultaneously created timers. 1 for Battery measurement, 1 for sensor updates  */
@@ -50,7 +39,7 @@
 #define ADC_PRE_SCALING_COMPENSATION      3                                                 /**< The ADC is configured to use VDD with 1/3 prescaling as input. And hence the result of conversion is to be multiplied by 3 to get the actual value of the battery voltage.*/
 
 
-#define BATTERY_LEVEL_MEAS_INTERVAL       APP_TIMER_TICKS(60000, APP_TIMER_PRESCALER)      /**< Battery level measurement interval (ticks). This value corresponds to 60 seconds. */
+#define BATTERY_LEVEL_MEAS_INTERVAL       APP_TIMER_TICKS(30000, APP_TIMER_PRESCALER)      /**< Battery level measurement interval (ticks). This value corresponds to 60 seconds. */
 
 #define COMPANY_IDENTIFIER               0x5604
 const char PRODUCT_IDENTIFIER[] = {0x00, 0x01};
@@ -129,25 +118,9 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
 
-
-static void gpio_init()
-{
-	// This pin is used for waking up from system off and is active low, so enable sense capabilities
-  nrf_gpio_cfg_input(BUTTON1, NRF_GPIO_PIN_PULLUP);
-  nrf_gpio_cfg_input(BUTTON2, NRF_GPIO_PIN_PULLUP);
-  nrf_gpio_cfg_input(BUTTON3, NRF_GPIO_PIN_PULLUP);
-
-  //NRF_GPIO->PIN_CNF[BUTTON1] |= (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);
-  //NRF_GPIO->PIN_CNF[BUTTON2] |= (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);
-  //NRF_GPIO->PIN_CNF[BUTTON3] |= (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);
-	
-	//nrf_gpio_cfg_sense_input(BUTTON1, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-	//nrf_gpio_cfg_sense_input(BUTTON2, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-	//nrf_gpio_cfg_sense_input(BUTTON3, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-}
-
 static void gpio_set_sense_low(bool low)
 {
+	/*
 	int sense;
 	if(low)
 	{
@@ -157,10 +130,9 @@ static void gpio_set_sense_low(bool low)
 	{
 		sense = NRF_GPIO_PIN_SENSE_HIGH;
 	}
-	
-	nrf_gpio_cfg_sense_input(BUTTON1, NRF_GPIO_PIN_PULLUP, sense);
-	nrf_gpio_cfg_sense_input(BUTTON2, NRF_GPIO_PIN_PULLUP, sense);
-	nrf_gpio_cfg_sense_input(BUTTON3, NRF_GPIO_PIN_PULLUP, sense);
+	*/
+	//nrf_gpio_cfg_sense_input(BUTTON1, NRF_GPIO_PIN_PULLUP, sense);
+	//NRF_GPIOTE->INTENSET = GPIOTE_INTENSET_PORT_Enabled << GPIOTE_INTENSET_PORT_Pos;
 }
 
 /**@brief Function for initializing the Advertising functionality.
@@ -218,6 +190,8 @@ static void advertising_start(void)
     err_code = sd_ble_gap_adv_start(&m_adv_params);
     APP_ERROR_CHECK(err_code);
 
+		//TODO: depedning on mode
+    //advertising_init();
     //nrf_gpio_pin_set(ADVERTISING_LED_PIN_NO);
 }
 
@@ -245,6 +219,8 @@ static void ble_stack_init(void)
     err_code = sd_ble_enable(&ble_enable_params);
     APP_ERROR_CHECK(err_code);
 }
+
+uint16_t battery_reading = 0;
 
 void ADC_IRQHandler(void)
 {
@@ -318,18 +294,6 @@ static void timers_init(void)
     // start battery timer
     err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
-
-    /*
-    // Create test timer.
-    err_code = app_timer_create(&test_timer_id,
-                                APP_TIMER_MODE_REPEATED,
-                                test_timer_handler);
-    APP_ERROR_CHECK(err_code);
-
-    // start test timer
-    err_code = app_timer_start(test_timer_id, TEST_TIMER_INTERVAL, NULL);
-    APP_ERROR_CHECK(err_code);
-    */
 }
 
 /**@brief Function for doing power management.
@@ -340,6 +304,91 @@ static void power_manage(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void do_button_adv()
+{
+	advertising_init();
+
+	uint8_t len = 1;
+	uint8_t rand;
+	sd_rand_application_bytes_available_get(&len);
+	nrf_delay_ms(5);
+	sd_rand_application_vector_get(&rand, 1);
+
+	//sd_rand_application_bytes_available_get();
+	//sd_rand_application_pool_capacity_get()
+
+	/*
+		 int b1_state = button_states & (1 << 0);
+		 int b2_state = button_states & (1 << 1);
+		 int b3_state = button_states & (1 << 2);
+		 */
+
+	//do the checks
+	//if(b1_state != b1)
+
+	/*
+		 button_states = 0;
+		 button_states |= (b1 << 0);
+		 button_states |= (b2 << 0);
+		 button_states |= (b3 << 0);
+		 */
+
+	/*
+		 if(b1 == 0 || b2 == 0 || b3 == 0) 
+		 {
+		 gpio_set_sense_low(true);
+		 prev_state = 1;
+		 }
+		 if(b1 != 0 || b2 != 0 || b3 != 0) 
+		 {
+		 gpio_set_sense_low(false);
+		 nrf_delay_ms(1);
+		 prev_state = 0;
+	//sd_power_system_off();
+	}
+	*/
+
+	sensor_data.b1 = 1;
+	sensor_data.b2 = 0;
+	sensor_data.b3 = 0;
+	sensor_data.random = rand;
+	update_advertising();
+
+	advertising_start();
+	nrf_delay_ms(150);
+	sd_ble_gap_adv_stop();
+}
+
+static void button_handler(uint8_t pin_no, uint8_t button_action)
+{
+	do_button_adv();
+    if(button_action == APP_BUTTON_PUSH)
+    {
+        switch(pin_no)
+        {
+            case BUTTON1:
+							do_button_adv();
+							break;
+            default:
+                break;
+        }
+    }
+}
+
+static void gpio_init()
+{
+	uint32_t        err_code;
+	static app_button_cfg_t p_button[] = {  {BUTTON1, APP_BUTTON_ACTIVE_LOW, NRF_GPIO_PIN_PULLUP, button_handler}};
+	// Initializing the buttons.
+	err_code = app_button_init(p_button, sizeof(p_button) / sizeof(p_button[0]), BUTTON_DEBOUNCE_DELAY, 0);
+	APP_ERROR_CHECK(err_code);
+
+	// Enabling the buttons.										
+	err_code = app_button_enable();
+	APP_ERROR_CHECK(err_code);
+}
+
+
 
 /**
  * @brief Function for application main entry.
@@ -347,20 +396,18 @@ static void power_manage(void)
 int main(void)
 {
 		// Initialize.
-		gpio_init();
-		gpio_set_sense_low(true);
+		//gpio_set_sense_low(true);
 		// Workaround for PAN_028 rev1.1 anomaly 22 - System: Issues with disable system OFF mechanism
 		nrf_delay_ms(1);
-		int b1 = !nrf_gpio_pin_read(BUTTON1);
-		int b2 = !nrf_gpio_pin_read(BUTTON2);
-		int b3 = !nrf_gpio_pin_read(BUTTON3);
-	
+
+		/*
     NRF_SPI0->ENABLE = 0;
     NRF_TWI0->ENABLE=0;
     NRF_TWI1->ENABLE=0;
     NRF_UART0->TASKS_STOPTX = 1;
     NRF_UART0->TASKS_STOPRX = 1;
     NRF_UART0->ENABLE = 0;
+		*/
     
     char device_id[]                 = { (UICR_ADDR_0x80 & 0x000000ff),
                                          (UICR_ADDR_0x80 & 0x0000ff00) >> 8, 
@@ -369,121 +416,26 @@ int main(void)
     };
 
     memcpy(sensor_data.product_id, PRODUCT_IDENTIFIER, 2);
+    memset(sensor_data.device_id, 0, 4);
     memcpy(sensor_data.device_id, device_id, 4);
     //sensor_data.sensor_state = 0;
     memset(sensor_data.battery_level, 0, 2);
     //sensor_data.power_level = 0xbf; //signed int -65 rssi at 1 meter
     memset(sensor_data.digest, 0, 4);
 
-		uint32_t app_states;
-
-		 //timers_init();
+		timers_init();
     ble_stack_init();
-    //adc_start();
-		advertising_init();
 		
-		sd_power_gpregret_get(&app_states);
-		int prev_state = app_states & (1 << 0);
+		nrf_delay_ms(5);
+		gpio_init();
+    adc_start();
 
-		//sd_rand_application_bytes_available_get();
-		//sd_rand_application_pool_capacity_get()
-		uint8_t len;
-		uint8_t rand;
-		sd_rand_application_bytes_available_get(&len);
-		nrf_delay_ms(10);
-		sd_rand_application_vector_get(&rand, 1);
-
-		/*
-		int b1_state = button_states & (1 << 0);
-		int b2_state = button_states & (1 << 1);
-		int b3_state = button_states & (1 << 2);
-		*/
-
-		//do the checks
-		//if(b1_state != b1)
-
-		/*
-		button_states = 0;
-		button_states |= (b1 << 0);
-		button_states |= (b2 << 0);
-		button_states |= (b3 << 0);
-		*/
-
-		/*
-		if(b1 == 0 || b2 == 0 || b3 == 0) 
-		{
-			gpio_set_sense_low(true);
-			prev_state = 1;
-		}
-		if(b1 != 0 || b2 != 0 || b3 != 0) 
-		{
-			gpio_set_sense_low(false);
-			nrf_delay_ms(1);
-			prev_state = 0;
-			//sd_power_system_off();
-		}
-		*/
-		
-		sensor_data.b1 = b1;
-		sensor_data.b2 = b2;
-		sensor_data.b3 = b3;
-		sensor_data.random = rand;
-		update_advertising();
-
-		advertising_start();
-		nrf_delay_ms(150);
-		sd_ble_gap_adv_stop();
-
-
-
-		while(b1 != 0 || b2 != 0 || b3 != 0) 
-		{
-				b1 = !nrf_gpio_pin_read(BUTTON1);
-				b2 = !nrf_gpio_pin_read(BUTTON2);
-				b3 = !nrf_gpio_pin_read(BUTTON3);
-		}
-
-		sensor_data.b1 = b1;
-		sensor_data.b2 = b2;
-		sensor_data.b3 = b3;
-		sensor_data.random = rand;
-		update_advertising();
-
-		advertising_start();
-		nrf_delay_ms(150);
-		sd_ble_gap_adv_stop();
-
-		/*
-		sensor_data.b1 = 0;
-		sensor_data.b2 = 0;
-		sensor_data.b3 = 0;
-		update_advertising();
-
-		advertising_start();
-		nrf_delay_ms(200);
-		sd_ble_gap_adv_stop();
-		*/
-
-		//write it
-		app_states = 0;
-		app_states |= (prev_state << 0);
-
-		sd_power_gpregret_clr(0xffffffff);
-		sd_power_gpregret_set(app_states);
-
-		sd_power_system_off();
-
-
+		do_button_adv();
 		// Enter main loop.
-		//for (;;)
-		//{
-			// Initialize.
-			//gpio_init();
-			// Workaround for PAN_028 rev1.1 anomaly 22 - System: Issues with disable system OFF mechanism
-			//nrf_delay_ms(1);
-	
-			//power_manage();
-		//}
+    for (;;)
+    {
+        power_manage();
+    }
 }
 
 /**
