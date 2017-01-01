@@ -18,6 +18,10 @@
 #include "app_timer.h"
 #include "app_error.h"
 
+#define APP_TIMER_PRESCALER               0
+#define APP_TIMER_MAX_TIMERS              6
+#define APP_TIMER_OP_QUEUE_SIZE           6
+#define BUTTON_DELAY							        APP_TIMER_TICKS(800, APP_TIMER_PRESCALER)
 
 static app_button_cfg_t *             mp_buttons = NULL;           /**< Button configuration. */
 static uint8_t                        m_button_count;              /**< Number of configured buttons. */
@@ -27,32 +31,29 @@ static app_gpiote_user_id_t           m_gpiote_user_id;            /**< GPIOTE u
 static app_timer_id_t                 m_detection_delay_timer_id;  /**< Polling timer id. */
 static pin_transition_t               m_pin_transition;            /**< pin transaction direction. */
 
-static uint8_t 												push_counter;
+static uint8_t 												push_counter = 0;
+static bool														timer_running = false;
 
 /**@brief Function for executing the application button handler for specified button.
  *
  * @param[in]  p_btn   Button that has been pushed.
  */
-static void button_handler_execute(app_button_cfg_t * p_btn, uint32_t transition, bool double_click)
+static void button_handler_execute(app_button_cfg_t * p_btn, uint32_t transition, uint8_t counter)
 {
     if (m_evt_schedule_func != NULL)
     {
-        uint32_t err_code = m_evt_schedule_func(p_btn->button_handler, p_btn->pin_no,transition);
+        uint32_t err_code = m_evt_schedule_func(p_btn->button_handler, p_btn->pin_no,transition, counter);
         APP_ERROR_CHECK(err_code);
     }
     else
     {
-        if(transition == APP_BUTTON_PUSH && double_click)
-        {
-            p_btn->button_handler(p_btn->pin_no, APP_BUTTON_PUSH_DOUBLE);
-        }
-				else if(transition == APP_BUTTON_PUSH)
+				if(transition == APP_BUTTON_PUSH)
 				{
-            p_btn->button_handler(p_btn->pin_no, APP_BUTTON_PUSH);
+            p_btn->button_handler(p_btn->pin_no, APP_BUTTON_PUSH, counter);
 				}
         else if(transition == APP_BUTTON_RELEASE)
         {
-            p_btn->button_handler(p_btn->pin_no, APP_BUTTON_RELEASE);
+            p_btn->button_handler(p_btn->pin_no, APP_BUTTON_RELEASE, counter);
         }
     }
 }
@@ -72,10 +73,10 @@ static void button_handler_execute(app_button_cfg_t * p_btn, uint32_t transition
  */
 static void detection_delay_timeout_handler(void * p_context)
 {
-		push_counter = 0;
     uint32_t err_code;
     uint32_t current_state_pins;
 
+		timer_running = false;
     // Get current state of pins.
     err_code = app_gpiote_pins_state_get(m_gpiote_user_id, &current_state_pins);
 
@@ -91,32 +92,33 @@ static void detection_delay_timeout_handler(void * p_context)
     {
         app_button_cfg_t * p_btn = &mp_buttons[i];
 
-        if (((m_pin_transition.high_to_low & (1 << p_btn->pin_no)) != 0) && (p_btn->button_handler != NULL))
+				//TODO: check if button is still held after being initially held. if it is, then consider it a long-push
+				bool is_long = !nrf_gpio_pin_read(p_btn->pin_no);
+				//bool is_long = false;
+
+        //if (((m_pin_transition.high_to_low & (1 << p_btn->pin_no)) != 0) && (p_btn->button_handler != NULL))
+        if (((1 << p_btn->pin_no) != 0) && (p_btn->button_handler != NULL) && push_counter > 0)
         {
             //If it's active high then going from high to low was a release of the button.
             if(p_btn->active_state == APP_BUTTON_ACTIVE_HIGH)
             {
-                button_handler_execute(p_btn, APP_BUTTON_RELEASE, false);
+                button_handler_execute(p_btn, APP_BUTTON_RELEASE, push_counter);
             }
             //If it's active low then going from high to low was a push of the button.
             else
             {
-                button_handler_execute(p_btn, APP_BUTTON_PUSH, false);
+								if(is_long)
+								{
+                	button_handler_execute(p_btn, APP_BUTTON_PUSH, APP_BUTTON_PUSH_LONG);
+								}
+								else
+								{
+                	button_handler_execute(p_btn, APP_BUTTON_PUSH, push_counter);
+								}
             }
         }
-        else if (((m_pin_transition.low_to_high & (1 << p_btn->pin_no)) != 0) && (p_btn->button_handler != NULL))
-        {
-            //If it's active high then going from low to high was a push of the button.
-            if(p_btn->active_state == APP_BUTTON_ACTIVE_HIGH)
-            {
-                button_handler_execute(p_btn,APP_BUTTON_PUSH, false);
-            }
-            //If it's active low then going from low to high was a release of the button.
-            else
-            {
-                button_handler_execute(p_btn,APP_BUTTON_RELEASE, false);
-            }
-        }
+				// reset counter to 0
+				push_counter = 0;
     }
 }
 
@@ -128,11 +130,54 @@ static void detection_delay_timeout_handler(void * p_context)
  *
  * @param[in]  event_pins_low_to_high   Mask telling which pin(s) had a low to high transition.
  * @param[in]  event_pins_high_to_low   Mask telling which pin(s) had a high to low transition.
+ * HB FUNCTION
  */
+
 static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event_pins_high_to_low)
 {
     uint32_t err_code;
- 
+
+    // Start detection timer. If timer is already running, the detection period is restarted.
+    // NOTE: Using the p_context parameter of app_timer_start() to transfer the pin states to the
+    //       timeout handler (by casting event_pins_mask into the equally sized void * p_context
+    //       parameter).
+    STATIC_ASSERT(sizeof(void *) == sizeof(uint32_t));
+
+		m_pin_transition.low_to_high = event_pins_low_to_high;
+		m_pin_transition.high_to_low = event_pins_high_to_low;
+		
+		//TODO: only do this if timer is NOT running
+		if(!timer_running)
+		{
+    
+    	err_code = app_timer_start(m_detection_delay_timer_id,
+															 BUTTON_DELAY,
+                               //m_detection_delay,
+                               (void *)(event_pins_low_to_high | event_pins_high_to_low));
+  	  if (err_code != NRF_SUCCESS)
+	    {
+        // The impact in app_button of the app_timer queue running full is losing a button press.
+        // The current implementation ensures that the system will continue working as normal. 
+    	}
+			else
+			{
+	    	timer_running = true;
+			}
+		}
+		//TODO: check this, might have to be other way arround
+		//if(event_pins_low_to_high)
+		if(event_pins_high_to_low)
+		{
+			push_counter++;
+		}
+}
+
+
+/*
+static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event_pins_high_to_low)
+{
+    uint32_t err_code;
+
     // Start detection timer. If timer is already running, the detection period is restarted.
     // NOTE: Using the p_context parameter of app_timer_start() to transfer the pin states to the
     //       timeout handler (by casting event_pins_mask into the equally sized void * p_context
@@ -143,29 +188,24 @@ static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event
     if (err_code != NRF_SUCCESS)
     {
         // The impact in app_button of the app_timer queue running full is losing a button press.
-        // The current implementation ensures that the system will continue working as normal. 
+        // The current implementation ensures that the system will continue working as normal.
         return;
     }
 
     m_pin_transition.low_to_high = event_pins_low_to_high;
     m_pin_transition.high_to_low = event_pins_high_to_low;
-    
+
     err_code = app_timer_start(m_detection_delay_timer_id,
                                m_detection_delay,
+															 //BUTTON_DELAY,
                                (void *)(event_pins_low_to_high | event_pins_high_to_low));
     if (err_code != NRF_SUCCESS)
     {
         // The impact in app_button of the app_timer queue running full is losing a button press.
-        // The current implementation ensures that the system will continue working as normal. 
+        // The current implementation ensures that the system will continue working as normal.
     }
-
-		//TODO: check this, might have to be other way arround
-		if(event_pins_low_to_high)
-		{
-			push_counter++;
-		}
 }
-
+*/
 
 uint32_t hb_app_button_init(app_button_cfg_t *             p_buttons,
                          uint8_t                        button_count,

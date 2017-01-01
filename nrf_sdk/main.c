@@ -21,7 +21,8 @@
 #include "hb_app_button.h"
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
-#define BUTTON_DEBOUNCE_DELAY			10 // Delay from a GPIOTE event until a button is reported as pushed.
+//#define BUTTON_DEBOUNCE_DELAY			1000 // Delay from a GPIOTE event until a button is reported as pushed.
+static uint32_t BUTTON_DEBOUNCE_DELAY =	200; // Delay from a GPIOTE event until a button is reported as pushed.
 
 #define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
@@ -69,7 +70,7 @@ typedef struct sensor_payload
 {
     uint8_t product_id[2];
     uint8_t device_id[4];
-    uint8_t b1;
+    uint8_t counter;
     uint8_t b2;
     uint8_t b3;
     // even though this should be a uint16_t, ARM insists on 4-byte boundaries 
@@ -311,7 +312,7 @@ static void power_manage(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static void do_button_adv()
+static void do_button_adv(uint8_t counter)
 {
 	advertising_init();
 
@@ -355,7 +356,7 @@ static void do_button_adv()
 	}
 	*/
 
-	sensor_data.b1 = 1;
+	sensor_data.counter = counter;
 	sensor_data.b2 = 0;
 	sensor_data.b3 = 0;
 	sensor_data.random = rand;
@@ -370,14 +371,14 @@ static void do_button_adv()
 	nrf_gpio_pin_toggle(RED_LED);
 }
 
-static void button_handler(uint8_t pin_no, uint8_t button_action)
+static void button_handler(uint8_t pin_no, uint8_t button_action, uint8_t counter)
 {
     if(button_action == APP_BUTTON_PUSH)
     {
         switch(pin_no)
         {
             case BUTTON1:
-							do_button_adv();
+							do_button_adv(counter);
 							break;
             default:
                 break;
@@ -442,7 +443,7 @@ int main(void)
 		gpio_init();
     adc_start();
 
-		do_button_adv();
+		do_button_adv(0);
 		// Enter main loop.
 		//sd_power_system_off();
     for (;;)

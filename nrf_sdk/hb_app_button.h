@@ -47,18 +47,19 @@
 
 #define APP_BUTTON_SCHED_EVT_SIZE sizeof(app_button_event_t)   /**< Size of button events being passed through the scheduler (is to be used for computing the maximum size of scheduler events). */
 #define APP_BUTTON_PUSH           1                        /**< Indicates that a button is pushed. */
-#define APP_BUTTON_PUSH_DOUBLE    2                        /**< Indicates that a button is pushed quickly twice. */
+#define APP_BUTTON_PUSH_LONG      0xff                     /**< Indicates that a button is held for a long-push. */
 #define APP_BUTTON_RELEASE        0                        /**< Indicates that a button is released. */
 #define APP_BUTTON_ACTIVE_HIGH    1                        /**< Indicates that a button is active high. */
 #define APP_BUTTON_ACTIVE_LOW     0                        /**< Indicates that a button is active low. */
 
 /**@brief Button event handler type. */
-typedef void (*app_button_handler_t)(uint8_t pin_no, uint8_t button_action);
+typedef void (*app_button_handler_t)(uint8_t pin_no, uint8_t button_action, uint8_t counter);
 
 /**@brief Type of function for passing events from the Button Handler module to the scheduler. */
 typedef uint32_t (*app_button_evt_schedule_func_t) (app_button_handler_t button_handler,
                                                     uint8_t              pin_no,
-                                                    uint8_t              button_action);
+                                                    uint8_t              button_action,
+                                                    uint8_t              counter);
 
 /**@brief Button configuration structure. */
 typedef struct
@@ -160,6 +161,7 @@ typedef struct
     app_button_handler_t button_handler;
     uint8_t              pin_no;
     uint8_t              button_action;
+    uint8_t              counter;
 } app_button_event_t;
 
 static __INLINE void app_button_evt_get(void * p_event_data, uint16_t event_size)
@@ -167,18 +169,20 @@ static __INLINE void app_button_evt_get(void * p_event_data, uint16_t event_size
     app_button_event_t * p_buttons_event = (app_button_event_t *)p_event_data;
     
     APP_ERROR_CHECK_BOOL(event_size == sizeof(app_button_event_t));
-    p_buttons_event->button_handler(p_buttons_event->pin_no, p_buttons_event->button_action);
+    p_buttons_event->button_handler(p_buttons_event->pin_no, p_buttons_event->button_action, p_buttons_event->counter);
 }
 
 static __INLINE uint32_t app_button_evt_schedule(app_button_handler_t button_handler,
                                                  uint8_t              pin_no,
-                                                 uint8_t              button_action)
+                                                 uint8_t              button_action,
+                                                 uint8_t              counter)
 {
     app_button_event_t buttons_event;
     
     buttons_event.button_handler = button_handler;
     buttons_event.pin_no         = pin_no;
     buttons_event.button_action  = button_action;
+    buttons_event.counter  = counter;
     
     return app_sched_event_put(&buttons_event, sizeof(buttons_event), app_button_evt_get);
 }
