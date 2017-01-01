@@ -18,10 +18,10 @@
 #include "nrf_gpio.h"
 #include "ble_radio_notification.h"
 #include "app_gpiote.h"
-#include "app_button.h"
+#include "hb_app_button.h"
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
-#define BUTTON_DEBOUNCE_DELAY			50 // Delay from a GPIOTE event until a button is reported as pushed.
+#define BUTTON_DEBOUNCE_DELAY			10 // Delay from a GPIOTE event until a button is reported as pushed.
 
 #define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
@@ -390,12 +390,12 @@ static void gpio_init()
 	uint32_t        err_code;
 	static app_button_cfg_t p_button[] = {{BUTTON1, APP_BUTTON_ACTIVE_LOW, NRF_GPIO_PIN_PULLUP, button_handler}};
 	// Initializing the buttons.
-	err_code = app_button_init(p_button, 1, BUTTON_DEBOUNCE_DELAY, 0);
+	err_code = hb_app_button_init(p_button, 1, BUTTON_DEBOUNCE_DELAY, 0);
 	//app_button_init(p_button, 0, BUTTON_DEBOUNCE_DELAY, 0);
 	APP_ERROR_CHECK(err_code);
 
 	// Enabling the buttons.										
-	err_code = app_button_enable();
+	err_code = hb_app_button_enable();
 	APP_ERROR_CHECK(err_code);
 
 	nrf_gpio_cfg_output(BLUE_LED);
