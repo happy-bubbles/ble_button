@@ -23,7 +23,7 @@
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
 
-#define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(400, APP_TIMER_PRESCALER)
+#define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(450, APP_TIMER_PRESCALER)
 #define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
@@ -69,10 +69,6 @@ static ble_gap_adv_params_t m_adv_params;                                  /**< 
 
 static app_timer_id_t                     m_battery_timer_id;                               /**< Battery measurement timer. */
 static app_timer_id_t                     m_button_adv_timer_id;                               /**< Battery measurement timer. */
-
-static bool change_adv_to_eddystone = false;
-static bool change_adv_to_button = false;
-//static bool change_adv = true;
 
 typedef struct button_adv_payload
 {
@@ -282,7 +278,6 @@ static void do_button_adv(uint8_t counter)
 	}
 
 	button_advertising_init();
-	change_adv_to_button = true;
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = BUTTON_ADV_INTERVAL;
 	sd_ble_gap_adv_start(&m_adv_params);
@@ -381,7 +376,6 @@ static void button_adv_timeout_handler(void * p_context)
 	}
 	eddystone_advertising_init();
 	eddystone_advertising_init();
-	change_adv_to_eddystone = true;
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
 	sd_ble_gap_adv_start(&m_adv_params);
@@ -451,35 +445,6 @@ static void gpio_init()
 	nrf_gpio_cfg_output(RED_LED);
 }
 
-void adv_change(bool radio_active) {
-	if (!radio_active) 
-	{
-			/*
-			if(change_adv)
-			{
-				sd_ble_gap_adv_stop();
-				nrf_delay_us(400);
-				sd_ble_gap_adv_start(&m_adv_params);
-				change_adv = false;
-			}
-			*/
-			if(change_adv_to_eddystone)
-			{
-				sd_ble_gap_adv_stop();
-				m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
-				sd_ble_gap_adv_start(&m_adv_params);
-				change_adv_to_eddystone = false;
-			}
-			if(change_adv_to_button)
-			{
-				sd_ble_gap_adv_stop();
-				m_adv_params.interval    = BUTTON_ADV_INTERVAL;
-				sd_ble_gap_adv_start(&m_adv_params);
-				change_adv_to_button = false;
-			}
-	}
-}
-
 /**
  * @brief Function for application main entry.
  */
@@ -489,14 +454,12 @@ int main(void)
 		// Workaround for PAN_028 rev1.1 anomaly 22 - System: Issues with disable system OFF mechanism
 		nrf_delay_ms(1);
 
-		/*
     NRF_SPI0->ENABLE = 0;
     NRF_TWI0->ENABLE=0;
     NRF_TWI1->ENABLE=0;
     NRF_UART0->TASKS_STOPTX = 1;
     NRF_UART0->TASKS_STOPRX = 1;
     NRF_UART0->ENABLE = 0;
-		*/
     
     char device_id[]                 = { (UICR_ADDR_0x80 & 0x000000ff),
                                          (UICR_ADDR_0x80 & 0x0000ff00) >> 8, 
@@ -512,8 +475,6 @@ int main(void)
 
 		timers_init();
     ble_stack_init();
-		//ble_radio_notification_init(NRF_APP_PRIORITY_LOW,
-		//	NRF_RADIO_NOTIFICATION_DISTANCE_5500US, adv_change);
 
 		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();
@@ -531,9 +492,6 @@ int main(void)
     m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
 		
 		advertising_start();
-
-		//change_adv_to_button = false;
-		//change_adv_to_eddystone = false;
 
 		// Enter main loop.
 		//sd_power_system_off();
