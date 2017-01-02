@@ -25,7 +25,6 @@
 
 static app_button_cfg_t *             mp_buttons = NULL;           /**< Button configuration. */
 static uint8_t                        m_button_count;              /**< Number of configured buttons. */
-static uint32_t                       m_detection_delay;           /**< Delay before a button is reported as pushed. */
 static app_button_evt_schedule_func_t m_evt_schedule_func;         /**< Pointer to function for propagating button events to the scheduler. */
 static app_gpiote_user_id_t           m_gpiote_user_id;            /**< GPIOTE user id for buttons module. */
 static app_timer_id_t                 m_detection_delay_timer_id;  /**< Polling timer id. */
@@ -152,7 +151,6 @@ static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event
     
     	err_code = app_timer_start(m_detection_delay_timer_id,
 															 BUTTON_DELAY,
-                               //m_detection_delay,
                                (void *)(event_pins_low_to_high | event_pins_high_to_low));
   	  if (err_code != NRF_SUCCESS)
 	    {
@@ -172,57 +170,16 @@ static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event
 		}
 }
 
-
-/*
-static void gpiote_event_handler(uint32_t event_pins_low_to_high, uint32_t event_pins_high_to_low)
-{
-    uint32_t err_code;
-
-    // Start detection timer. If timer is already running, the detection period is restarted.
-    // NOTE: Using the p_context parameter of app_timer_start() to transfer the pin states to the
-    //       timeout handler (by casting event_pins_mask into the equally sized void * p_context
-    //       parameter).
-    STATIC_ASSERT(sizeof(void *) == sizeof(uint32_t));
-
-    err_code = app_timer_stop(m_detection_delay_timer_id);
-    if (err_code != NRF_SUCCESS)
-    {
-        // The impact in app_button of the app_timer queue running full is losing a button press.
-        // The current implementation ensures that the system will continue working as normal.
-        return;
-    }
-
-    m_pin_transition.low_to_high = event_pins_low_to_high;
-    m_pin_transition.high_to_low = event_pins_high_to_low;
-
-    err_code = app_timer_start(m_detection_delay_timer_id,
-                               m_detection_delay,
-															 //BUTTON_DELAY,
-                               (void *)(event_pins_low_to_high | event_pins_high_to_low));
-    if (err_code != NRF_SUCCESS)
-    {
-        // The impact in app_button of the app_timer queue running full is losing a button press.
-        // The current implementation ensures that the system will continue working as normal.
-    }
-}
-*/
-
 uint32_t hb_app_button_init(app_button_cfg_t *             p_buttons,
                          uint8_t                        button_count,
-                         uint32_t                       detection_delay,
                          app_button_evt_schedule_func_t evt_schedule_func)
 {
     uint32_t err_code;
     
-    if (detection_delay < APP_TIMER_MIN_TIMEOUT_TICKS)
-    {
-        return NRF_ERROR_INVALID_PARAM;
-    }
 
     // Save configuration.
     mp_buttons          = p_buttons;
     m_button_count      = button_count;
-    m_detection_delay   = detection_delay;
     m_evt_schedule_func = evt_schedule_func;
   
     // Configure pins.

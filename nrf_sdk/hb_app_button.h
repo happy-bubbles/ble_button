@@ -96,7 +96,6 @@ typedef struct
     {                                                                                              \
         uint32_t ERR_CODE = app_button_init((BUTTONS),                                             \
                                             (BUTTON_COUNT),                                        \
-                                            (DETECTION_DELAY),                                     \
                                             (USE_SCHEDULER) ? app_button_evt_schedule : NULL);     \
         APP_ERROR_CHECK(ERR_CODE);                                                                 \
     } while (0)
@@ -123,7 +122,6 @@ typedef struct
  */
 uint32_t hb_app_button_init(app_button_cfg_t *             p_buttons,
                          uint8_t                        button_count,
-                         uint32_t                       detection_delay,
                          app_button_evt_schedule_func_t evt_schedule_func);
 
 /**@brief Function for enabling button detection.

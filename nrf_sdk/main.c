@@ -19,11 +19,11 @@
 #include "ble_radio_notification.h"
 #include "app_gpiote.h"
 #include "hb_app_button.h"
+#include "eddystone.h"
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
-//#define BUTTON_DEBOUNCE_DELAY			1000 // Delay from a GPIOTE event until a button is reported as pushed.
-static uint32_t BUTTON_DEBOUNCE_DELAY =	200; // Delay from a GPIOTE event until a button is reported as pushed.
 
+#define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(350, APP_TIMER_PRESCALER)
 #define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
@@ -31,13 +31,16 @@ static uint32_t BUTTON_DEBOUNCE_DELAY =	200; // Delay from a GPIOTE event until 
 #define BLUE_LED	15
 #define RED_LED	16
 
+#define APP_MEASURED_RSSI               0xC3                              /**< The Beacon's measured RSSI at 1 meter distance in dBm. */
+#define EDDYSTONE_UID                   0
 
 #define APP_TIMER_PRESCALER               0                                                 /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_MAX_TIMERS              6                                                 /**< Maximum number of simultaneously created timers. 1 for Battery measurement, 1 for sensor updates  */
 #define APP_TIMER_OP_QUEUE_SIZE           6                                                 /**< Size of timer operation queues. */
 
 #define APP_CFG_NON_CONN_ADV_TIMEOUT     0                                 /**< Time for which the device must be advertising in non-connectable mode (in seconds). 0 disables timeout. */
-#define NON_CONNECTABLE_ADV_INTERVAL     MSEC_TO_UNITS(100, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
+#define BUTTON_ADV_INTERVAL        MSEC_TO_UNITS(100, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
+#define EDDYSTONE_ADV_INTERVAL     MSEC_TO_UNITS(600, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
 
 #define ADC_REF_VOLTAGE_IN_MILLIVOLTS     1200                                              /**< Reference voltage (in milli volts) used by ADC while doing conversion. */
 #define ADC_PRE_SCALING_COMPENSATION      3                                                 /**< The ADC is configured to use VDD with 1/3 prescaling as input. And hence the result of conversion is to be multiplied by 3 to get the actual value of the battery voltage.*/
@@ -65,8 +68,9 @@ const char PRODUCT_IDENTIFIER[] = {0x00, 0x01};
 static ble_gap_adv_params_t m_adv_params;                                  /**< Parameters to be passed to the stack when starting advertising. */
 
 static app_timer_id_t                     m_battery_timer_id;                               /**< Battery measurement timer. */
+static app_timer_id_t                     m_button_adv_timer_id;                               /**< Battery measurement timer. */
 
-typedef struct sensor_payload
+typedef struct button_adv_payload
 {
     uint8_t product_id[2];
     uint8_t device_id[4];
@@ -78,9 +82,9 @@ typedef struct sensor_payload
     uint8_t battery_level[2];
     uint8_t random;
     uint8_t digest[2]; 
-} sensor_payload;
+} button_adv_payload;
 
-static sensor_payload sensor_data;
+static button_adv_payload button_adv_data;
 
 /**@brief Function for error handling, which is called when an error has occurred.
  *
@@ -106,6 +110,36 @@ void app_error_handler(uint32_t error_code, uint32_t line_num, const uint8_t * p
     NVIC_SystemReset();
 }
 
+static edstn_frame_t edstn_frames[3];
+void init_uid_frame_buffer() {
+    uint8_t *encoded_advdata = edstn_frames[EDDYSTONE_UID].adv_frame;
+    uint8_t *len_advdata = &edstn_frames[EDDYSTONE_UID].adv_len;
+
+    eddystone_head_encode(encoded_advdata, 0x00, len_advdata);
+
+    encoded_advdata[(*len_advdata)++] = APP_MEASURED_RSSI;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x01;
+    encoded_advdata[(*len_advdata)++] = 0x02;
+    encoded_advdata[(*len_advdata)++] = 0x03;
+    encoded_advdata[(*len_advdata)++] = 0x04;
+    encoded_advdata[(*len_advdata)++] = 0x05;
+    encoded_advdata[(*len_advdata)++] = 0x06;
+    encoded_advdata[(*len_advdata)++] = 0x07;
+    encoded_advdata[(*len_advdata)++] = 0x08;
+    encoded_advdata[(*len_advdata)++] = 0x09;
+
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x01;
+    encoded_advdata[(*len_advdata)++] = 0x02;
+    encoded_advdata[(*len_advdata)++] = 0x03;
+    encoded_advdata[(*len_advdata)++] = 0x04;
+    encoded_advdata[(*len_advdata)++] = 0x05;
+    encoded_advdata[(*len_advdata)++] = 0x06;
+
+    encoded_advdata[0x07] = (*len_advdata) - 8; // Length	Service Data. Ibid. § 1.11
+}
+
 /**@brief Callback function for asserts in the SoftDevice.
  *
  * @details This function will be called in case of an assert in the SoftDevice.
@@ -122,29 +156,12 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
 
-static void gpio_set_sense_low(bool low)
-{
-	/*
-	int sense;
-	if(low)
-	{
-		sense = NRF_GPIO_PIN_SENSE_LOW;
-	}
-	else
-	{
-		sense = NRF_GPIO_PIN_SENSE_HIGH;
-	}
-	*/
-	//nrf_gpio_cfg_sense_input(BUTTON1, NRF_GPIO_PIN_PULLUP, sense);
-	//NRF_GPIOTE->INTENSET = GPIOTE_INTENSET_PORT_Enabled << GPIOTE_INTENSET_PORT_Pos;
-}
-
 /**@brief Function for initializing the Advertising functionality.
  *
  * @details Encodes the required advertising data and passes it to the stack.
  *          Also builds a structure to be passed to the stack when starting advertising.
  */
-static void advertising_init(void)
+static void button_advertising_init(void)
 {
     uint32_t        err_code;
     ble_advdata_t   advdata;
@@ -154,8 +171,8 @@ static void advertising_init(void)
     ble_advdata_manuf_data_t manuf_specific_data;
     manuf_specific_data.company_identifier = COMPANY_IDENTIFIER;
 
-    uint8_t spp[sizeof(sensor_data)];
-    memcpy(spp, &sensor_data, sizeof(sensor_data));        
+    uint8_t spp[sizeof(button_adv_data)];
+    memcpy(spp, &button_adv_data, sizeof(button_adv_data));        
 
     manuf_specific_data.data.p_data        = spp;
     manuf_specific_data.data.size          = sizeof(spp);
@@ -178,10 +195,46 @@ static void advertising_init(void)
     m_adv_params.type        = BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
     m_adv_params.p_peer_addr = NULL;                             // Undirected advertisement.
     m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
-    m_adv_params.interval    = NON_CONNECTABLE_ADV_INTERVAL;
+    m_adv_params.interval    = BUTTON_ADV_INTERVAL;
     m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
     
     APP_ERROR_CHECK(err_code);
+}
+
+uint32_t eddystone_set_adv_data(uint32_t frame_index) {
+	uint8_t *p_encoded_advdata = edstn_frames[frame_index].adv_frame;
+	return sd_ble_gap_adv_data_set(p_encoded_advdata, edstn_frames[frame_index].adv_len, NULL, 0);
+}
+
+static void eddystone_advertising_init(void)
+{ 
+    uint32_t        err_code;
+		ble_advdata_t   advdata;
+    int8_t          tx_power_level = TX_POWER_LEVEL;
+    uint8_t         flags = BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED;
+    
+		memset(&advdata, 0, sizeof(advdata));
+
+    advdata.name_type               = BLE_ADVDATA_NO_NAME;
+    advdata.flags.size              = sizeof(flags);
+    advdata.flags.p_data            = &flags;
+    advdata.p_tx_power_level        = &tx_power_level;
+    advdata.p_manuf_specific_data   = NULL;
+
+    err_code = ble_advdata_set(&advdata, NULL);
+    APP_ERROR_CHECK(err_code);
+
+		// Initialize advertising parameters (used when starting advertising).
+    memset(&m_adv_params, 0, sizeof(m_adv_params));
+
+    m_adv_params.type = BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
+    m_adv_params.p_peer_addr = NULL;                             // Undirected advertisement.
+    m_adv_params.fp = BLE_GAP_ADV_FP_ANY;
+    m_adv_params.interval = EDDYSTONE_ADV_INTERVAL;
+    m_adv_params.timeout = APP_CFG_NON_CONN_ADV_TIMEOUT;
+		
+		init_uid_frame_buffer();
+		eddystone_set_adv_data(EDDYSTONE_UID);
 }
 
 
@@ -199,10 +252,35 @@ static void advertising_start(void)
     //nrf_gpio_pin_set(ADVERTISING_LED_PIN_NO);
 }
 
-static void update_advertising()
+static void update_button_advertising()
 {
-    advertising_init();
-    //advertising_start();
+    button_advertising_init();
+}
+
+static bool toggle_leds = true;
+static void do_button_adv(uint8_t counter)
+{
+	uint8_t len = 1;
+	uint8_t rand;
+	sd_rand_application_bytes_available_get(&len);
+	nrf_delay_ms(6);
+	sd_rand_application_vector_get(&rand, 1);
+
+	button_adv_data.counter = counter;
+	button_adv_data.b2 = 0;
+	button_adv_data.b3 = 0;
+	button_adv_data.random = rand;
+	
+	sd_ble_gap_adv_stop();
+	update_button_advertising();
+  sd_ble_gap_adv_start(&m_adv_params);
+
+	if(toggle_leds)
+	{
+		nrf_gpio_pin_toggle(BLUE_LED);
+		nrf_gpio_pin_toggle(RED_LED);
+	}
+  app_timer_start(m_button_adv_timer_id, BUTTON_ADV_TIMEOUT, NULL);
 }
 
 /**@brief Function for initializing the BLE stack.
@@ -245,9 +323,9 @@ void ADC_IRQHandler(void)
         uint16_t mv = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
         //update struct with battery value
         uint8_t hi_lo[] = { (uint8_t)(mv >> 8), (uint8_t)mv }; 
-        memcpy(sensor_data.battery_level, hi_lo, 2);
-        //memcpy(sensor_data.battery_level, adc_result, 1);
-        update_advertising();
+        memcpy(button_adv_data.battery_level, hi_lo, 2);
+				toggle_leds = false;
+				do_button_adv(0);
     }
 }
 
@@ -286,6 +364,18 @@ static void battery_level_meas_timeout_handler(void * p_context)
     adc_start();
 }
 
+static void button_adv_timeout_handler(void * p_context)
+{
+	sd_ble_gap_adv_stop();
+	eddystone_advertising_init();
+  sd_ble_gap_adv_start(&m_adv_params);
+	if(toggle_leds)
+	{
+		nrf_gpio_pin_toggle(BLUE_LED);
+		nrf_gpio_pin_toggle(RED_LED);
+	}
+}
+
 static void timers_init(void)
 {
     uint32_t err_code;
@@ -297,6 +387,11 @@ static void timers_init(void)
     err_code = app_timer_create(&m_battery_timer_id,
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
+    APP_ERROR_CHECK(err_code);
+    
+		err_code = app_timer_create(&m_button_adv_timer_id,
+																APP_TIMER_MODE_SINGLE_SHOT,
+                                button_adv_timeout_handler);
     APP_ERROR_CHECK(err_code);
     
     // start battery timer
@@ -312,65 +407,6 @@ static void power_manage(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static void do_button_adv(uint8_t counter)
-{
-	advertising_init();
-
-	uint8_t len = 1;
-	uint8_t rand;
-	sd_rand_application_bytes_available_get(&len);
-	nrf_delay_ms(5);
-	sd_rand_application_vector_get(&rand, 1);
-
-	//sd_rand_application_bytes_available_get();
-	//sd_rand_application_pool_capacity_get()
-
-	/*
-		 int b1_state = button_states & (1 << 0);
-		 int b2_state = button_states & (1 << 1);
-		 int b3_state = button_states & (1 << 2);
-		 */
-
-	//do the checks
-	//if(b1_state != b1)
-
-	/*
-		 button_states = 0;
-		 button_states |= (b1 << 0);
-		 button_states |= (b2 << 0);
-		 button_states |= (b3 << 0);
-		 */
-
-	/*
-		 if(b1 == 0 || b2 == 0 || b3 == 0) 
-		 {
-		 gpio_set_sense_low(true);
-		 prev_state = 1;
-		 }
-		 if(b1 != 0 || b2 != 0 || b3 != 0) 
-		 {
-		 gpio_set_sense_low(false);
-		 nrf_delay_ms(1);
-		 prev_state = 0;
-	//sd_power_system_off();
-	}
-	*/
-
-	sensor_data.counter = counter;
-	sensor_data.b2 = 0;
-	sensor_data.b3 = 0;
-	sensor_data.random = rand;
-	update_advertising();
-
-	nrf_gpio_pin_toggle(BLUE_LED);
-	nrf_gpio_pin_toggle(RED_LED);
-	advertising_start();
-	nrf_delay_ms(150);
-	sd_ble_gap_adv_stop();
-	nrf_gpio_pin_toggle(BLUE_LED);
-	nrf_gpio_pin_toggle(RED_LED);
-}
-
 static void button_handler(uint8_t pin_no, uint8_t button_action, uint8_t counter)
 {
     if(button_action == APP_BUTTON_PUSH)
@@ -378,6 +414,7 @@ static void button_handler(uint8_t pin_no, uint8_t button_action, uint8_t counte
         switch(pin_no)
         {
             case BUTTON1:
+							toggle_leds = true;
 							do_button_adv(counter);
 							break;
             default:
@@ -391,8 +428,7 @@ static void gpio_init()
 	uint32_t        err_code;
 	static app_button_cfg_t p_button[] = {{BUTTON1, APP_BUTTON_ACTIVE_LOW, NRF_GPIO_PIN_PULLUP, button_handler}};
 	// Initializing the buttons.
-	err_code = hb_app_button_init(p_button, 1, BUTTON_DEBOUNCE_DELAY, 0);
-	//app_button_init(p_button, 0, BUTTON_DEBOUNCE_DELAY, 0);
+	err_code = hb_app_button_init(p_button, 1, 0);
 	APP_ERROR_CHECK(err_code);
 
 	// Enabling the buttons.										
@@ -409,7 +445,6 @@ static void gpio_init()
 int main(void)
 {
 		// Initialize.
-		//gpio_set_sense_low(true);
 		// Workaround for PAN_028 rev1.1 anomaly 22 - System: Issues with disable system OFF mechanism
 		nrf_delay_ms(1);
 
@@ -428,13 +463,11 @@ int main(void)
                                          (UICR_ADDR_0x80 & 0xff000000) >> 24,
     };
 
-    memcpy(sensor_data.product_id, PRODUCT_IDENTIFIER, 2);
-    memset(sensor_data.device_id, 0, 4);
-    memcpy(sensor_data.device_id, device_id, 4);
-    //sensor_data.sensor_state = 0;
-    memset(sensor_data.battery_level, 0, 2);
-    //sensor_data.power_level = 0xbf; //signed int -65 rssi at 1 meter
-    memset(sensor_data.digest, 0, 4);
+    memcpy(button_adv_data.product_id, PRODUCT_IDENTIFIER, 2);
+    memset(button_adv_data.device_id, 0, 4);
+    memcpy(button_adv_data.device_id, device_id, 4);
+    memset(button_adv_data.battery_level, 0, 2);
+    memset(button_adv_data.digest, 0, 4);
 
 		timers_init();
     ble_stack_init();
@@ -443,6 +476,7 @@ int main(void)
 		gpio_init();
     adc_start();
 
+		toggle_leds = true;
 		do_button_adv(0);
 		// Enter main loop.
 		//sd_power_system_off();

@@ -4,6 +4,7 @@ BOARD := BOARD_PCA10001
 # application source
 C_SOURCE_FILES += main.c
 C_SOURCE_FILES += hb_app_button.c
+C_SOURCE_FILES += eddystone.c
 
 C_SOURCE_FILES += ble_tps.c
 C_SOURCE_FILES += ble_ias.c
