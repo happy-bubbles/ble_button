@@ -23,7 +23,7 @@
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
 
-#define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(350, APP_TIMER_PRESCALER)
+#define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(400, APP_TIMER_PRESCALER)
 #define PRESENCE_ADV_INTERVAL 2500
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
@@ -40,7 +40,7 @@
 
 #define APP_CFG_NON_CONN_ADV_TIMEOUT     0                                 /**< Time for which the device must be advertising in non-connectable mode (in seconds). 0 disables timeout. */
 #define BUTTON_ADV_INTERVAL        MSEC_TO_UNITS(100, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
-#define EDDYSTONE_ADV_INTERVAL     MSEC_TO_UNITS(600, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
+#define EDDYSTONE_ADV_INTERVAL     MSEC_TO_UNITS(500, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (5 s). This value can vary between 100ms to 10.24s). */
 
 #define ADC_REF_VOLTAGE_IN_MILLIVOLTS     1200                                              /**< Reference voltage (in milli volts) used by ADC while doing conversion. */
 #define ADC_PRE_SCALING_COMPENSATION      3                                                 /**< The ADC is configured to use VDD with 1/3 prescaling as input. And hence the result of conversion is to be multiplied by 3 to get the actual value of the battery voltage.*/
@@ -69,6 +69,10 @@ static ble_gap_adv_params_t m_adv_params;                                  /**< 
 
 static app_timer_id_t                     m_battery_timer_id;                               /**< Battery measurement timer. */
 static app_timer_id_t                     m_button_adv_timer_id;                               /**< Battery measurement timer. */
+
+static bool change_adv_to_eddystone = false;
+static bool change_adv_to_button = false;
+//static bool change_adv = true;
 
 typedef struct button_adv_payload
 {
@@ -189,6 +193,7 @@ static void button_advertising_init(void)
     err_code = ble_advdata_set(&advdata, NULL);
     APP_ERROR_CHECK(err_code);
 
+		/*
     // Initialize advertising parameters (used when starting advertising).
     memset(&m_adv_params, 0, sizeof(m_adv_params));
 
@@ -197,8 +202,7 @@ static void button_advertising_init(void)
     m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
     m_adv_params.interval    = BUTTON_ADV_INTERVAL;
     m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
-    
-    APP_ERROR_CHECK(err_code);
+		*/
 }
 
 uint32_t eddystone_set_adv_data(uint32_t frame_index) {
@@ -271,15 +275,19 @@ static void do_button_adv(uint8_t counter)
 	button_adv_data.b3 = 0;
 	button_adv_data.random = rand;
 	
-	sd_ble_gap_adv_stop();
-	update_button_advertising();
-  sd_ble_gap_adv_start(&m_adv_params);
-
 	if(toggle_leds)
 	{
 		nrf_gpio_pin_toggle(BLUE_LED);
 		nrf_gpio_pin_toggle(RED_LED);
 	}
+
+	button_advertising_init();
+	change_adv_to_button = true;
+	sd_ble_gap_adv_stop();
+	m_adv_params.interval    = BUTTON_ADV_INTERVAL;
+	sd_ble_gap_adv_start(&m_adv_params);
+
+  app_timer_stop(m_button_adv_timer_id);
   app_timer_start(m_button_adv_timer_id, BUTTON_ADV_TIMEOUT, NULL);
 }
 
@@ -366,14 +374,17 @@ static void battery_level_meas_timeout_handler(void * p_context)
 
 static void button_adv_timeout_handler(void * p_context)
 {
-	sd_ble_gap_adv_stop();
-	eddystone_advertising_init();
-  sd_ble_gap_adv_start(&m_adv_params);
 	if(toggle_leds)
 	{
 		nrf_gpio_pin_toggle(BLUE_LED);
 		nrf_gpio_pin_toggle(RED_LED);
 	}
+	eddystone_advertising_init();
+	eddystone_advertising_init();
+	change_adv_to_eddystone = true;
+	sd_ble_gap_adv_stop();
+	m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
+	sd_ble_gap_adv_start(&m_adv_params);
 }
 
 static void timers_init(void)
@@ -395,6 +406,7 @@ static void timers_init(void)
     APP_ERROR_CHECK(err_code);
     
     // start battery timer
+		app_timer_stop(m_button_adv_timer_id);
     err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 }
@@ -439,6 +451,35 @@ static void gpio_init()
 	nrf_gpio_cfg_output(RED_LED);
 }
 
+void adv_change(bool radio_active) {
+	if (!radio_active) 
+	{
+			/*
+			if(change_adv)
+			{
+				sd_ble_gap_adv_stop();
+				nrf_delay_us(400);
+				sd_ble_gap_adv_start(&m_adv_params);
+				change_adv = false;
+			}
+			*/
+			if(change_adv_to_eddystone)
+			{
+				sd_ble_gap_adv_stop();
+				m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
+				sd_ble_gap_adv_start(&m_adv_params);
+				change_adv_to_eddystone = false;
+			}
+			if(change_adv_to_button)
+			{
+				sd_ble_gap_adv_stop();
+				m_adv_params.interval    = BUTTON_ADV_INTERVAL;
+				sd_ble_gap_adv_start(&m_adv_params);
+				change_adv_to_button = false;
+			}
+	}
+}
+
 /**
  * @brief Function for application main entry.
  */
@@ -471,13 +512,29 @@ int main(void)
 
 		timers_init();
     ble_stack_init();
+		//ble_radio_notification_init(NRF_APP_PRIORITY_LOW,
+		//	NRF_RADIO_NOTIFICATION_DISTANCE_5500US, adv_change);
 
 		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();
-    adc_start();
+    //adc_start();
+		
+		//toggle_leds = true;
+		//do_button_adv(0);
+		eddystone_advertising_init();
+		memset(&m_adv_params, 0, sizeof(m_adv_params));
 
-		toggle_leds = true;
-		do_button_adv(0);
+    m_adv_params.type        = BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
+    m_adv_params.p_peer_addr = NULL;                             // Undirected advertisement.
+    m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
+    m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
+    m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
+		
+		advertising_start();
+
+		//change_adv_to_button = false;
+		//change_adv_to_eddystone = false;
+
 		// Enter main loop.
 		//sd_power_system_off();
     for (;;)
