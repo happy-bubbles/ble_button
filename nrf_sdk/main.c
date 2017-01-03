@@ -52,12 +52,11 @@
 const char PRODUCT_IDENTIFIER[] = {0x00, 0x01};
 
 // EDDYSTONE
-// 12 bytes, use for the 10-byte namespace
-// except of 10 bytes, first 2 for happy bubbles will be 0x00, 0x00
+// 8 bytes, use for the 6-byte instance ID
 #define UICR_ADDR_0x80         (*((uint32_t *) 0x10001080))
 #define UICR_ADDR_0x84         (*((uint32_t *) 0x10001084))
 #define UICR_ADDR_0x88         (*((uint32_t *) 0x10001088))
-// instance is the same for all of them ?
+// namespace is the same for all of them ?
 
 #define DEAD_BEEF                        0xDEADBEEF                        /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
@@ -78,7 +77,7 @@ static app_timer_id_t                     m_button_adv_timer_id;                
 typedef struct button_adv_payload
 {
     uint8_t product_id[2];
-    uint8_t device_id[8];
+    uint8_t device_id[6];
     uint8_t counter;
     // even though this should be a uint16_t, ARM insists on 4-byte boundaries 
     // so split into two uint8_t's. otherwise we lose a byte to alignmentpadding
@@ -112,6 +111,8 @@ void app_error_handler(uint32_t error_code, uint32_t line_num, const uint8_t * p
     NVIC_SystemReset();
 }
 
+static uint8_t HB_NAMESPACE[] = {0xdd, 0xdd, 0xee, 0xee, 0xee, 0xff, 0xff, 0x55, 0x44, 0xff};
+
 static edstn_frame_t edstn_frames[3];
 void init_uid_frame_buffer() {
     uint8_t *encoded_advdata = edstn_frames[EDDYSTONE_UID].adv_frame;
@@ -120,23 +121,24 @@ void init_uid_frame_buffer() {
     eddystone_head_encode(encoded_advdata, 0x00, len_advdata);
 
     encoded_advdata[(*len_advdata)++] = APP_MEASURED_RSSI;
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
+    
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[0];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[1];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[2];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[3];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[4];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[5];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[6];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[7];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[8];
+		encoded_advdata[(*len_advdata)++] = HB_NAMESPACE[9];
+
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[0];
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[1];
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[2];
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[3];
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[4];
     encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[5];
-    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[6];
-    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[7];
-
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x00;
     encoded_advdata[(*len_advdata)++] = 0x00;
 
     encoded_advdata[0x07] = (*len_advdata) - 8; // Length	Service Data. Ibid. § 1.11
@@ -471,13 +473,11 @@ int main(void)
                                          (UICR_ADDR_0x80 & 0xff000000) >> 24,
 																				 (UICR_ADDR_0x84 & 0x000000ff),
                                          (UICR_ADDR_0x84 & 0x0000ff00) >> 8, 
-                                         (UICR_ADDR_0x84 & 0x00ff0000) >> 16, 
-                                         (UICR_ADDR_0x84 & 0xff000000) >> 24,
     };
 
     memcpy(button_adv_data.product_id, PRODUCT_IDENTIFIER, 2);
-    memset(button_adv_data.device_id, 0, 8);
-    memcpy(button_adv_data.device_id, device_id, 8);
+    memset(button_adv_data.device_id, 0, 6);
+    memcpy(button_adv_data.device_id, device_id, 6);
     memset(button_adv_data.battery_level, 0, 2);
 
 		timers_init();

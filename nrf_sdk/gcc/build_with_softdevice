@@ -11,7 +11,7 @@ fi
 serial=$1
 
 size=${#serial}
-if [ "$size" -ne "16" ] 
+if [ "$size" -ne "12" ] 
 then
     echo "bad serial"
     exit 5
@@ -22,11 +22,9 @@ s3=${serial:4:2}
 s4=${serial:6:2}
 s5=${serial:8:2}
 s6=${serial:10:2}
-s7=${serial:12:2}
-s8=${serial:14:2}
 
 #printf \\x$s1\\x$s2\\x$s3\\x$s4 > serial
-printf \\x$s1\\x$s2\\x$s3\\x$s4\\x$s5\\x$s6\\x$s7\\x$s8 > serial
+printf \\x$s1\\x$s2\\x$s3\\x$s4\\x$s5\\x$s6 > serial
 
 # take off last newline char from serial
 printf %s "$(cat serial)" > serial
