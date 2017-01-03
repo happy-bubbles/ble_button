@@ -51,8 +51,13 @@
 #define COMPANY_IDENTIFIER               0x5604
 const char PRODUCT_IDENTIFIER[] = {0x00, 0x01};
 
+// EDDYSTONE
+// 12 bytes, use for the 10-byte namespace
+// except of 10 bytes, first 2 for happy bubbles will be 0x00, 0x00
 #define UICR_ADDR_0x80         (*((uint32_t *) 0x10001080))
 #define UICR_ADDR_0x84         (*((uint32_t *) 0x10001084))
+#define UICR_ADDR_0x88         (*((uint32_t *) 0x10001088))
+// instance is the same for all of them ?
 
 #define DEAD_BEEF                        0xDEADBEEF                        /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
@@ -73,15 +78,12 @@ static app_timer_id_t                     m_button_adv_timer_id;                
 typedef struct button_adv_payload
 {
     uint8_t product_id[2];
-    uint8_t device_id[4];
+    uint8_t device_id[8];
     uint8_t counter;
-    uint8_t b2;
-    uint8_t b3;
     // even though this should be a uint16_t, ARM insists on 4-byte boundaries 
     // so split into two uint8_t's. otherwise we lose a byte to alignmentpadding
     uint8_t battery_level[2];
     uint8_t random;
-    uint8_t digest[2]; 
 } button_adv_payload;
 
 static button_adv_payload button_adv_data;
@@ -119,23 +121,23 @@ void init_uid_frame_buffer() {
 
     encoded_advdata[(*len_advdata)++] = APP_MEASURED_RSSI;
     encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x01;
-    encoded_advdata[(*len_advdata)++] = 0x02;
-    encoded_advdata[(*len_advdata)++] = 0x03;
-    encoded_advdata[(*len_advdata)++] = 0x04;
-    encoded_advdata[(*len_advdata)++] = 0x05;
-    encoded_advdata[(*len_advdata)++] = 0x06;
-    encoded_advdata[(*len_advdata)++] = 0x07;
-    encoded_advdata[(*len_advdata)++] = 0x08;
-    encoded_advdata[(*len_advdata)++] = 0x09;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[0];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[1];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[2];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[3];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[4];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[5];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[6];
+    encoded_advdata[(*len_advdata)++] = button_adv_data.device_id[7];
 
     encoded_advdata[(*len_advdata)++] = 0x00;
-    encoded_advdata[(*len_advdata)++] = 0x01;
-    encoded_advdata[(*len_advdata)++] = 0x02;
-    encoded_advdata[(*len_advdata)++] = 0x03;
-    encoded_advdata[(*len_advdata)++] = 0x04;
-    encoded_advdata[(*len_advdata)++] = 0x05;
-    encoded_advdata[(*len_advdata)++] = 0x06;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x00;
+    encoded_advdata[(*len_advdata)++] = 0x00;
 
     encoded_advdata[0x07] = (*len_advdata) - 8; // Length	Service Data. Ibid. § 1.11
 }
@@ -224,6 +226,7 @@ static void eddystone_advertising_init(void)
     err_code = ble_advdata_set(&advdata, NULL);
     APP_ERROR_CHECK(err_code);
 
+		/*
 		// Initialize advertising parameters (used when starting advertising).
     memset(&m_adv_params, 0, sizeof(m_adv_params));
 
@@ -232,7 +235,10 @@ static void eddystone_advertising_init(void)
     m_adv_params.fp = BLE_GAP_ADV_FP_ANY;
     m_adv_params.interval = EDDYSTONE_ADV_INTERVAL;
     m_adv_params.timeout = APP_CFG_NON_CONN_ADV_TIMEOUT;
-		
+		*/
+
+		init_uid_frame_buffer();
+		eddystone_set_adv_data(EDDYSTONE_UID);
 		init_uid_frame_buffer();
 		eddystone_set_adv_data(EDDYSTONE_UID);
 }
@@ -267,8 +273,6 @@ static void do_button_adv(uint8_t counter)
 	sd_rand_application_vector_get(&rand, 1);
 
 	button_adv_data.counter = counter;
-	button_adv_data.b2 = 0;
-	button_adv_data.b3 = 0;
 	button_adv_data.random = rand;
 	
 	if(toggle_leds)
@@ -374,7 +378,7 @@ static void button_adv_timeout_handler(void * p_context)
 		nrf_gpio_pin_toggle(BLUE_LED);
 		nrf_gpio_pin_toggle(RED_LED);
 	}
-	eddystone_advertising_init();
+	//eddystone_advertising_init();
 	eddystone_advertising_init();
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
@@ -465,13 +469,16 @@ int main(void)
                                          (UICR_ADDR_0x80 & 0x0000ff00) >> 8, 
                                          (UICR_ADDR_0x80 & 0x00ff0000) >> 16, 
                                          (UICR_ADDR_0x80 & 0xff000000) >> 24,
+																				 (UICR_ADDR_0x84 & 0x000000ff),
+                                         (UICR_ADDR_0x84 & 0x0000ff00) >> 8, 
+                                         (UICR_ADDR_0x84 & 0x00ff0000) >> 16, 
+                                         (UICR_ADDR_0x84 & 0xff000000) >> 24,
     };
 
     memcpy(button_adv_data.product_id, PRODUCT_IDENTIFIER, 2);
-    memset(button_adv_data.device_id, 0, 4);
-    memcpy(button_adv_data.device_id, device_id, 4);
+    memset(button_adv_data.device_id, 0, 8);
+    memcpy(button_adv_data.device_id, device_id, 8);
     memset(button_adv_data.battery_level, 0, 2);
-    memset(button_adv_data.digest, 0, 4);
 
 		timers_init();
     ble_stack_init();
