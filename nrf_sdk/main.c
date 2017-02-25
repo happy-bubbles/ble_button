@@ -87,6 +87,8 @@ typedef struct button_adv_payload
 
 static button_adv_payload button_adv_data;
 
+static bool button_advertising = false;
+
 /**@brief Function for error handling, which is called when an error has occurred.
  *
  * @warning This handler is an example only and does not fit a final product. You need to analyze
@@ -239,8 +241,8 @@ static void eddystone_advertising_init(void)
     m_adv_params.timeout = APP_CFG_NON_CONN_ADV_TIMEOUT;
 		*/
 
-		init_uid_frame_buffer();
-		eddystone_set_adv_data(EDDYSTONE_UID);
+		//TODO: this crap makes no sense.
+		// probably works sometimes because done when radio is off, needs to be done when radio off.
 		init_uid_frame_buffer();
 		eddystone_set_adv_data(EDDYSTONE_UID);
 }
@@ -258,11 +260,6 @@ static void advertising_start(void)
 		//TODO: depedning on mode
     //advertising_init();
     //nrf_gpio_pin_set(ADVERTISING_LED_PIN_NO);
-}
-
-static void update_button_advertising()
-{
-    button_advertising_init();
 }
 
 static bool toggle_leds = true;
@@ -284,6 +281,7 @@ static void do_button_adv(uint8_t counter)
 	}
 
 	button_advertising_init();
+	button_advertising = true;
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = BUTTON_ADV_INTERVAL;
 	sd_ble_gap_adv_start(&m_adv_params);
@@ -381,10 +379,12 @@ static void button_adv_timeout_handler(void * p_context)
 		nrf_gpio_pin_toggle(RED_LED);
 	}
 	//eddystone_advertising_init();
+	
 	eddystone_advertising_init();
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
 	sd_ble_gap_adv_start(&m_adv_params);
+	button_advertising = false;
 }
 
 static void timers_init(void)
@@ -451,6 +451,13 @@ static void gpio_init()
 	nrf_gpio_cfg_output(RED_LED);
 }
 
+void eddystone_interleave(bool radio_active) {
+    if (radio_active && !button_advertising) {
+			init_uid_frame_buffer();
+			eddystone_set_adv_data(EDDYSTONE_UID);
+    }
+}
+
 /**
  * @brief Function for application main entry.
  */
@@ -482,6 +489,10 @@ int main(void)
 
 		timers_init();
     ble_stack_init();
+
+		ble_radio_notification_init(NRF_APP_PRIORITY_LOW,
+				NRF_RADIO_NOTIFICATION_DISTANCE_800US, 
+				eddystone_interleave);
 
 		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();

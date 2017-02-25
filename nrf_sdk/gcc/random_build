@@ -1,0 +1,3 @@
+SERIAL=`printf "%04x" $RANDOM $RANDOM $RANDOM`
+echo $SERIAL
+./build_with_softdevice "$SERIAL"
