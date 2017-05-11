@@ -21,6 +21,8 @@
 #include "hb_app_button.h"
 #include "eddystone.h"
 
+//#define EDDYSTONE_ADVERTISE 1
+
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
 
 #define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(450, APP_TIMER_PRESCALER)
@@ -373,18 +375,18 @@ static void battery_level_meas_timeout_handler(void * p_context)
 
 static void button_adv_timeout_handler(void * p_context)
 {
-	if(toggle_leds)
-	{
-		nrf_gpio_pin_toggle(BLUE_LED);
-		nrf_gpio_pin_toggle(RED_LED);
-	}
+	nrf_gpio_pin_clear(BLUE_LED);
+	nrf_gpio_pin_clear(RED_LED);
 	//eddystone_advertising_init();
-	
+
+	sd_ble_gap_adv_stop();
+	button_advertising = false;
+#ifdef EDDYSTONE_ADVERTISE
 	eddystone_advertising_init();
 	sd_ble_gap_adv_stop();
 	m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
 	sd_ble_gap_adv_start(&m_adv_params);
-	button_advertising = false;
+#endif
 }
 
 static void timers_init(void)
@@ -490,9 +492,11 @@ int main(void)
 		timers_init();
     ble_stack_init();
 
+#ifdef EDDYSTONE_ADVERTISE
 		ble_radio_notification_init(NRF_APP_PRIORITY_LOW,
 				NRF_RADIO_NOTIFICATION_DISTANCE_800US, 
 				eddystone_interleave);
+#endif
 
 		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();
@@ -500,6 +504,9 @@ int main(void)
 		
 		//toggle_leds = true;
 		//do_button_adv(0);
+	
+#ifdef EDDYSTONE_ADVERTISE
+
 		eddystone_advertising_init();
 		memset(&m_adv_params, 0, sizeof(m_adv_params));
 
@@ -510,6 +517,7 @@ int main(void)
     m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
 		
 		advertising_start();
+#endif
 
 		// Enter main loop.
 		//sd_power_system_off();
