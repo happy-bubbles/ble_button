@@ -1,5 +1,5 @@
 /* Copyright (c) 2013 Nordic Semiconductor. All Rights Reserved.
- * Copyright (c) 2015 Nemik Consulting Inc. All Wrongs Reversed.
+ * Copyright (c) 2017 Nemik Consulting Inc. All Wrongs Reversed.
  *
  */
 
@@ -22,6 +22,8 @@
 #include "eddystone.h"
 
 #define APP_GPIOTE_MAX_USERS            1  // Maximum number of users of the GPIOTE handler.
+
+//#define EDDYSTONE_ADVERTISING 1
 
 #define BUTTON_ADV_TIMEOUT   APP_TIMER_TICKS(450, APP_TIMER_PRESCALER)
 #define PRESENCE_ADV_INTERVAL 2500
@@ -95,7 +97,8 @@ static bool button_advertising = false;
  * 2 - Button only
  */
 typedef enum {MODE_PRESENCE_AND_BUTTON = 0, MODE_BUTTON, END} device_mode_t;
-device_mode_t device_mode = MODE_PRESENCE_AND_BUTTON;
+//device_mode_t device_mode = MODE_PRESENCE_AND_BUTTON;
+device_mode_t device_mode = MODE_BUTTON;
 
 /**@brief Function for error handling, which is called when an error has occurred.
  *
@@ -285,27 +288,10 @@ static void do_button_adv(uint8_t counter)
 	if(counter == APP_BUTTON_PUSH_LONG)
 	{
 		device_mode++;
-	}
-	if(device_mode == END)
-	{
-		device_mode = MODE_PRESENCE_AND_BUTTON;
-	}
-
-	if(device_mode == MODE_PRESENCE_AND_BUTTON)
-	{
-		eddystone_advertising_init();
-		memset(&m_adv_params, 0, sizeof(m_adv_params));
-
-    m_adv_params.type        = BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
-    m_adv_params.p_peer_addr = NULL;                             // Undirected advertisement.
-    m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
-    m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
-    m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
-		
-		advertising_start();
-	}
-	else if(device_mode == MODE_BUTTON){
-		sd_ble_gap_adv_stop();
+		if(device_mode == END)
+		{
+			device_mode = MODE_PRESENCE_AND_BUTTON;
+		}
 	}
 
 	if(toggle_leds)
@@ -420,7 +406,7 @@ static void button_adv_timeout_handler(void * p_context)
 	button_advertising = false;
 	if(device_mode == MODE_PRESENCE_AND_BUTTON)
 	{
-		eddystone_advertising_init();
+		//eddystone_advertising_init();
 		sd_ble_gap_adv_stop();
 		m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
 		sd_ble_gap_adv_start(&m_adv_params);
@@ -487,17 +473,12 @@ static void gpio_init()
 	err_code = hb_app_button_enable();
 	APP_ERROR_CHECK(err_code);
 
-	// based on mode
-	if (device_mode == MODE_PRESENCE_AND_BUTTON) {
-		nrf_gpio_cfg_output(BLUE_LED);
-		nrf_gpio_cfg_output(RED_LED);
-	} else if (device_mode == MODE_BUTTON) {
-		nrf_gpio_cfg_output(RED_LED);
-	}
+	nrf_gpio_cfg_output(BLUE_LED);
+	nrf_gpio_cfg_output(RED_LED);
 }
 
 void eddystone_interleave(bool radio_active) {
-    if (radio_active && !button_advertising) {
+    if (radio_active && !button_advertising && device_mode == MODE_PRESENCE_AND_BUTTON) {
 			init_uid_frame_buffer();
 			eddystone_set_adv_data(EDDYSTONE_UID);
     }
@@ -535,13 +516,10 @@ int main(void)
 		timers_init();
     ble_stack_init();
 
-	if(device_mode == MODE_PRESENCE_AND_BUTTON)
-	{
 		ble_radio_notification_init(NRF_APP_PRIORITY_LOW,
 				NRF_RADIO_NOTIFICATION_DISTANCE_800US, 
 				eddystone_interleave);
-	}
-
+	
 		APP_GPIOTE_INIT(APP_GPIOTE_MAX_USERS);
 		gpio_init();
     //adc_start();
@@ -549,8 +527,6 @@ int main(void)
 		//toggle_leds = true;
 		//do_button_adv(0);
 	
-	if(device_mode == MODE_PRESENCE_AND_BUTTON)
-	{
 		eddystone_advertising_init();
 		memset(&m_adv_params, 0, sizeof(m_adv_params));
 
@@ -559,9 +535,11 @@ int main(void)
     m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
     m_adv_params.interval    = EDDYSTONE_ADV_INTERVAL;
     m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
-		
-		advertising_start();
-	}
+	
+		if(device_mode == MODE_PRESENCE_AND_BUTTON)
+		{	
+			advertising_start();
+		}
 
 		// Enter main loop.
     for (;;)
