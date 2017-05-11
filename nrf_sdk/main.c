@@ -97,8 +97,8 @@ static bool button_advertising = false;
  * 2 - Button only
  */
 typedef enum {MODE_PRESENCE_AND_BUTTON = 0, MODE_BUTTON, END} device_mode_t;
-//device_mode_t device_mode = MODE_PRESENCE_AND_BUTTON;
-device_mode_t device_mode = MODE_BUTTON;
+device_mode_t device_mode = MODE_PRESENCE_AND_BUTTON;
+//device_mode_t device_mode = MODE_BUTTON;
 
 /**@brief Function for error handling, which is called when an error has occurred.
  *

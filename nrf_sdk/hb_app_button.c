@@ -21,7 +21,7 @@
 #define APP_TIMER_PRESCALER               0
 #define APP_TIMER_MAX_TIMERS              6
 #define APP_TIMER_OP_QUEUE_SIZE           6
-#define BUTTON_DELAY							        APP_TIMER_TICKS(800, APP_TIMER_PRESCALER)
+#define BUTTON_DELAY							        APP_TIMER_TICKS(1500, APP_TIMER_PRESCALER)
 
 static app_button_cfg_t *             mp_buttons = NULL;           /**< Button configuration. */
 static uint8_t                        m_button_count;              /**< Number of configured buttons. */
