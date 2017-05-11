@@ -1,12 +1,4 @@
-#!/bin/sh
-
-make release
-res=$?
-if [ "$res" -ne "0" ]
-then
-    echo "BAD MAKE"
-    exit 5
-fi
+#!/bin/bash
 
 serial=$1
 
@@ -16,6 +8,7 @@ then
     echo "bad serial"
     exit 5
 fi
+
 s1=${serial:0:2}
 s2=${serial:2:2}
 s3=${serial:4:2}
@@ -28,6 +21,18 @@ printf \\x$s1\\x$s2\\x$s3\\x$s4\\x$s5\\x$s6 > serial
 
 # take off last newline char from serial
 #printf %s "$(cat serial)" > serial
+
+if [ "$2" == "compile" ]
+then
+	make release
+	res=0
+	if [ "$res" -ne "0" ]
+	then
+		echo "BAD MAKE"
+		exit 5
+	fi
+fi
+
 
 srec_cat ../s110_nrf51822_7.3.0_softdevice.hex -intel _build/bunchie_buttons_s110_xxaa.bin -binary -offset 0x16000 serial -binary -offset 0x10001080 -o combined.hex -intel
 
