@@ -85,6 +85,8 @@ typedef struct button_adv_payload
     // so split into two uint8_t's. otherwise we lose a byte to alignmentpadding
     uint8_t battery_level[2];
     uint8_t random;
+    uint8_t mode;
+    uint8_t ref_rssi;
 } button_adv_payload;
 
 static button_adv_payload button_adv_data;
@@ -293,6 +295,8 @@ static void do_button_adv(uint8_t counter)
 			device_mode = MODE_PRESENCE_AND_BUTTON;
 		}
 	}
+  
+	button_adv_data.mode = device_mode;
 
 	if(toggle_leds)
 	{
@@ -356,6 +360,7 @@ void ADC_IRQHandler(void)
         //update struct with battery value
         uint8_t hi_lo[] = { (uint8_t)(mv >> 8), (uint8_t)mv }; 
         memcpy(button_adv_data.battery_level, hi_lo, 2);
+        button_adv_data.mode = device_mode;
 				toggle_leds = false;
 				do_button_adv(0);
     }
@@ -512,6 +517,7 @@ int main(void)
     memset(button_adv_data.device_id, 0, 6);
     memcpy(button_adv_data.device_id, device_id, 6);
     memset(button_adv_data.battery_level, 0, 2);
+    button_adv_data.ref_rssi = APP_MEASURED_RSSI;
 
 		timers_init();
     ble_stack_init();
